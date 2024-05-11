@@ -20,7 +20,30 @@ pd.options.mode.chained_assignment = None
 WEEKSEC = 604800
 lightSpeed = 2.99792458e8
 gpsepoch = datetime(1980, 1, 6, 0, 0, 0)
-
+def least_squares(xs, measured_pseudorange, x0, b0):
+    dx = 100*np.ones(3)
+    b = b0
+    # set up the G matrix with the right dimensions. We will later replace the first 3 columns
+    # note that b here is the clock bias in meters equivalent, so the actual clock bias is b/LIGHTSPEED
+    G = np.ones((measured_pseudorange.size, 4))
+    iterations = 0
+    while np.linalg.norm(dx) > 1e-3:
+        # Eq. (2):
+        r = np.linalg.norm(xs - x0, axis=1)
+        # Eq. (1):
+        phat = r + b0
+        # Eq. (3):
+        deltaP = measured_pseudorange - phat
+        G[:, 0:3] = -(xs - x0) / r[:, None]
+        # Eq. (4):
+        sol = np.linalg.inv(np.transpose(G) @ G) @ np.transpose(G) @ deltaP
+        # Eq. (5):
+        dx = sol[0:3]
+        db = sol[3]
+        x0 = x0 + dx
+        b0 = b0 + db
+    norm_dp = np.linalg.norm(deltaP)
+    return x0, b0, norm_dp
 
 def read_data(input_filepath):
     measurements, android_fixes= [], []
@@ -81,6 +104,26 @@ def preprocess_measurements(measurements):
     measurements['PrSigmaM'] = lightSpeed * 1e-9 * measurements['ReceivedSvTimeUncertaintyNanos']
 
     return measurements
+def ecef_to_geodetic(x, y, z):
+    # WGS84 ellipsoid constants
+    a = 6378137.0  # Earth's radius in meters
+    e_sq = 6.69437999014e-3  # Eccentricity squared
+
+    # Calculations
+    b = np.sqrt(a**2 * (1 - e_sq))  # Semi-minor axis
+    ep = np.sqrt((a**2 - b**2) / b**2)
+    p = np.sqrt(x**2 + y**2)
+    th = np.arctan2(a * z, b * p)
+    lon = np.arctan2(y, x)
+    lat = np.arctan2(z + ep**2 * b * np.sin(th)**3, p - e_sq * a * np.cos(th)**3)
+    N = a / np.sqrt(1 - e_sq * np.sin(lat)**2)
+    alt = p / np.cos(lat) - N
+
+    # Convert radian to degrees for latitude and longitude
+    lat = np.degrees(lat)
+    lon = np.degrees(lon)
+
+    return lat, lon, alt
 
 def calculate_satellite_position(ephemeris, transmit_time):
     mu = 3.986005e14
@@ -158,7 +201,8 @@ def main():
             # Ensure sv_position's index matches one_epoch's index
             sv_position.index = sv_position.index.map(str)  # Ensuring index types match; adjust as needed
             one_epoch = one_epoch.join(sv_position[['delT_sv']], how='left')
-            one_epoch['PrM_corrected'] = one_epoch['PrM'] + lightSpeed * one_epoch['delT_sv']
+            pr=one_epoch['PrM_Fix'] = one_epoch['PrM'] + lightSpeed * one_epoch['delT_sv']
+            pr = pr.to_numpy()
 
             # Doppler shift calculation
             doppler_calculated = False
@@ -176,18 +220,24 @@ def main():
                     "Sat.X": sv_position.at[sv, 'x_k'] if sv in sv_position.index else np.nan,
                     "Sat.Y": sv_position.at[sv, 'y_k'] if sv in sv_position.index else np.nan,
                     "Sat.Z": sv_position.at[sv, 'z_k'] if sv in sv_position.index else np.nan,
-                    "Pseudo-Range": one_epoch.at[sv, 'PrM_corrected'],
+                    "Pseudo-Range": one_epoch.at[sv, 'PrM_Fix'],
                     "CN0": one_epoch.at[sv, 'Cn0DbHz'],
                     "Doppler": one_epoch.at[sv, 'DopplerShiftHz'] if doppler_calculated else 'NaN'
                 })
             
-                
-            """
-            we need here to do the postion task.
-            """
-            #x, b, dp = least_squares(xs, pr, x, b) 
-            #ecef_list.append(x)
 
+
+    b0 = 0
+    x0 = np.array([0, 0, 0])
+    xs = sv_position[['x_k', 'y_k', 'z_k']].to_numpy()
+    x, b, dp = least_squares(xs, pr, x0, b0)
+    print(navpy.ecef2lla(x))
+    print(b / lightSpeed)
+    print(dp)
+    coordinates = [ecef_to_geodetic(row['x_k'], row['y_k'], row['z_k']) for index, row in sv_position.iterrows()]
+    geodetic_positions = pd.DataFrame(coordinates, columns=['Latitude', 'Longitude', 'Altitude'])
+
+    print(geodetic_positions)
     csv_df = pd.DataFrame(csvoutput)
     csv_df.to_csv("gnss_measurements_output.csv", index=False)
 
