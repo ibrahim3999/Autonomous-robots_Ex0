@@ -7,7 +7,10 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from lxml import etree
+from pykml.factory import KML_ElementMaker as KML
 import navpy
+import simplekml
 from gnssutils import EphemerisManager
 parent_directory = os.getcwd()
 ephemeris_data_directory = os.path.join(parent_directory, 'data')
@@ -179,9 +182,33 @@ def calculate_satellite_position(ephemeris, transmit_time):
     sv_position['z_k'] = y_k_prime*np.sin(i_k)
     return sv_position
 
+def save_kml(geodetic_positions):
+    kml = simplekml.Kml()
+    for index, row in geodetic_positions.iterrows():
+        kml.newpoint(name=f"Satellite {index}", coords=[(row['Longitude'], row['Latitude'], row['Altitude'])])
+    kml.save("satellite_positions.kml")
+
+
+def write_outputs( ecef_positions, kml_filepath):
+
+    # Create KML for visualization
+    doc = KML.kml(
+        KML.Document(
+            *[KML.Placemark(
+                KML.name(str(i)),
+                KML.Point(KML.coordinates(f"{pos[1]},{pos[0]},{pos[2]}"))
+            ) for i, pos in enumerate(ecef_positions)]
+        )
+    )
+
+    # Write KML file
+    print("write kml")
+    with open(kml_filepath, 'wb') as file:
+        file.write(etree.tostring(doc, pretty_print=True))
+
 def main():
     #Options to choose from the datasets
-    parsed_measurements = read_data('C:\projects\Atumic Robots\Ex0-20240507T151005Z-001\Ex0\GNSS-Raw-Measurements-main\GNSS-Raw-Measurements-main\data\gnss_log_2024_04_13_19_51_17.txt')
+    parsed_measurements = read_data('data\gnss_log_2024_04_13_19_51_17.txt')
     measurements = preprocess_measurements(parsed_measurements)
     manager = EphemerisManager(ephemeris_data_directory)
         
@@ -213,38 +240,55 @@ def main():
                 doppler_calculated = True
             except Exception:
                 pass
-        
-            for sv in one_epoch.index:
-                csvoutput.append({
-                    "GPS Time": timestamp.isoformat(),
-                    "SatPRN (ID)": sv,
-                    "Sat.X": sv_position.at[sv, 'x_k'] if sv in sv_position.index else np.nan,
-                    "Sat.Y": sv_position.at[sv, 'y_k'] if sv in sv_position.index else np.nan,
-                    "Sat.Z": sv_position.at[sv, 'z_k'] if sv in sv_position.index else np.nan,
-                    "Pseudo-Range": one_epoch.at[sv, 'PrM_Fix'],
-                    "CN0": one_epoch.at[sv, 'Cn0DbHz'],
-                    "Doppler": one_epoch.at[sv, 'DopplerShiftHz'] if doppler_calculated else 'NaN'
-                })
+
             b0 = 0
             x0 = np.array([0, 0, 0])
             xs = sv_position[['x_k', 'y_k', 'z_k']].to_numpy()
             x, b, dp = least_squares(xs, pr, x0, b0)
-            ecef_list.append(x)
+            lat, lon, alt = ecef_to_geodetic(*x[:3])
+            ecef_list.append(x[:3])
+            for sv in one_epoch.index:
+                csvoutput.append({
+                    "GPS Time": timestamp.isoformat(),
+                    "SatPRN (ID)": sv,
+                    "Sat.X": sv_position.at[sv, 'x_k'],
+                    "Sat.Y": sv_position.at[sv, 'y_k'],
+                    "Sat.Z": sv_position.at[sv, 'z_k'],
+                    "Pseudo-Range": one_epoch.at[sv, 'PrM_Fix'],
+                    "CN0": one_epoch.at[sv, 'Cn0DbHz'],
+                    "Doppler": one_epoch.at[sv, 'DopplerShiftHz'] if 'DopplerShiftHz' in one_epoch.columns else np.nan,
+                    "Pos.X": x[0],
+                    "Pos.Y": x[1],
+                    "Pos.Z": x[2],
+                    "Lat": lat,
+                    "Lon": lon,
+                    "Alt": alt
+                })
+
             
 
-
-    b0 = 0
-    x0 = np.array([0, 0, 0])
-    xs = sv_position[['x_k', 'y_k', 'z_k']].to_numpy()
-    x, b, dp = least_squares(xs, pr, x0, b0)
     print(navpy.ecef2lla(x))
     print(b / lightSpeed)
     print(dp)
+    ecef_array = np.stack(ecef_list, axis=0)
+    print(ecef_array)
+    lla_array = np.stack(navpy.ecef2lla(ecef_array), axis=1)
+    print("checking")
+    print(lla_array)
+    write_outputs(lla_array, 'path.kml')
+    ref_lla = lla_array[0, :]
+    ned_array = navpy.ecef2ned(ecef_array, ref_lla[0], ref_lla[1], ref_lla[2])
+    print(ned_array)
     coordinates = [ecef_to_geodetic(row['x_k'], row['y_k'], row['z_k']) for index, row in sv_position.iterrows()]
     geodetic_positions = pd.DataFrame(coordinates, columns=['Latitude', 'Longitude', 'Altitude'])
-
     print(geodetic_positions)
     csv_df = pd.DataFrame(csvoutput)
+    save_kml(geodetic_positions)
+    # Append geodetic positions to CSV output
+    csv_df['Latitude'] = geodetic_positions['Latitude']
+    csv_df['Longitude'] = geodetic_positions['Longitude']
+    csv_df['Altitude'] = geodetic_positions['Altitude']
+
     csv_df.to_csv("gnss_measurements_output.csv", index=False)
 
 try:
