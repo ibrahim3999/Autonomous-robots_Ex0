@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import navpy
+import simplekml
 from gnssutils import EphemerisManager
 parent_directory = os.getcwd()
 ephemeris_data_directory = os.path.join(parent_directory, 'data')
@@ -179,6 +180,12 @@ def calculate_satellite_position(ephemeris, transmit_time):
     sv_position['z_k'] = y_k_prime*np.sin(i_k)
     return sv_position
 
+def save_kml(geodetic_positions):
+    kml = simplekml.Kml()
+    for index, row in geodetic_positions.iterrows():
+        kml.newpoint(name=f"Satellite {index}", coords=[(row['Longitude'], row['Latitude'], row['Altitude'])])
+    kml.save("satellite_positions.kml")
+
 def main():
     #Options to choose from the datasets
     parsed_measurements = read_data('data\gnss_log_2024_04_13_19_51_17.txt')
@@ -237,8 +244,15 @@ def main():
     coordinates = [ecef_to_geodetic(row['x_k'], row['y_k'], row['z_k']) for index, row in sv_position.iterrows()]
     geodetic_positions = pd.DataFrame(coordinates, columns=['Latitude', 'Longitude', 'Altitude'])
 
+
     print(geodetic_positions)
     csv_df = pd.DataFrame(csvoutput)
+    save_kml(geodetic_positions)
+    # Append geodetic positions to CSV output
+    csv_df['Latitude'] = geodetic_positions['Latitude']
+    csv_df['Longitude'] = geodetic_positions['Longitude']
+    csv_df['Altitude'] = geodetic_positions['Altitude']
+
     csv_df.to_csv("gnss_measurements_output.csv", index=False)
 
 try:
