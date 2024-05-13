@@ -12,19 +12,20 @@ from pykml.factory import KML_ElementMaker as KML
 import navpy
 import simplekml
 from gnssutils import EphemerisManager
+
 parent_directory = os.getcwd()
 ephemeris_data_directory = os.path.join(parent_directory, 'data')
 
 pd.options.mode.chained_assignment = None
 
-
-
 # Constants
 WEEKSEC = 604800
 lightSpeed = 2.99792458e8
 gpsepoch = datetime(1980, 1, 6, 0, 0, 0)
+
+
 def least_squares(xs, measured_pseudorange, x0, b0):
-    dx = 100*np.ones(3)
+    dx = 100 * np.ones(3)
     b = b0
     # set up the G matrix with the right dimensions. We will later replace the first 3 columns
     # note that b here is the clock bias in meters equivalent, so the actual clock bias is b/LIGHTSPEED
@@ -48,8 +49,9 @@ def least_squares(xs, measured_pseudorange, x0, b0):
     norm_dp = np.linalg.norm(deltaP)
     return x0, b0, norm_dp
 
+
 def read_data(input_filepath):
-    measurements, android_fixes= [], []
+    measurements, android_fixes = [], []
     with open(input_filepath) as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
@@ -66,10 +68,11 @@ def read_data(input_filepath):
 
     return pd.DataFrame(measurements[1:], columns=measurements[0])
 
+
 def preprocess_measurements(measurements):
     # Format satellite IDs
     measurements.loc[measurements['Svid'].str.len() == 1, 'Svid'] = '0' + measurements['Svid']
-    #measurements['Constellation'] = measurements['ConstellationType'].map({'1': 'G', '3': 'R'})
+    # measurements['Constellation'] = measurements['ConstellationType'].map({'1': 'G', '3': 'R'})
     measurements.loc[measurements['ConstellationType'] == '1', 'Constellation'] = 'G'
     measurements.loc[measurements['ConstellationType'] == '3', 'Constellation'] = 'R'
 
@@ -85,7 +88,8 @@ def preprocess_measurements(measurements):
         measurements[col] = pd.to_numeric(measurements[col], errors='coerce').fillna(0)
 
     # Generate GPS and Unix timestamps
-    measurements['GpsTimeNanos'] = measurements['TimeNanos'] - (measurements['FullBiasNanos'] - measurements['BiasNanos'])
+    measurements['GpsTimeNanos'] = measurements['TimeNanos'] - (
+                measurements['FullBiasNanos'] - measurements['BiasNanos'])
     measurements['UnixTime'] = pd.to_datetime(measurements['GpsTimeNanos'], utc=True, origin=gpsepoch)
 
     # Identify epochs based on time gaps
@@ -107,19 +111,21 @@ def preprocess_measurements(measurements):
     measurements['PrSigmaM'] = lightSpeed * 1e-9 * measurements['ReceivedSvTimeUncertaintyNanos']
 
     return measurements
+
+
 def ecef_to_geodetic(x, y, z):
     # WGS84 ellipsoid constants
     a = 6378137.0  # Earth's radius in meters
     e_sq = 6.69437999014e-3  # Eccentricity squared
 
     # Calculations
-    b = np.sqrt(a**2 * (1 - e_sq))  # Semi-minor axis
-    ep = np.sqrt((a**2 - b**2) / b**2)
-    p = np.sqrt(x**2 + y**2)
+    b = np.sqrt(a ** 2 * (1 - e_sq))  # Semi-minor axis
+    ep = np.sqrt((a ** 2 - b ** 2) / b ** 2)
+    p = np.sqrt(x ** 2 + y ** 2)
     th = np.arctan2(a * z, b * p)
     lon = np.arctan2(y, x)
-    lat = np.arctan2(z + ep**2 * b * np.sin(th)**3, p - e_sq * a * np.cos(th)**3)
-    N = a / np.sqrt(1 - e_sq * np.sin(lat)**2)
+    lat = np.arctan2(z + ep ** 2 * b * np.sin(th) ** 3, p - e_sq * a * np.cos(th) ** 3)
+    N = a / np.sqrt(1 - e_sq * np.sin(lat) ** 2)
     alt = p / np.cos(lat) - N
 
     # Convert radian to degrees for latitude and longitude
@@ -128,12 +134,13 @@ def ecef_to_geodetic(x, y, z):
 
     return lat, lon, alt
 
+
 def calculate_satellite_position(ephemeris, transmit_time):
     mu = 3.986005e14
     OmegaDot_e = 7.2921151467e-5
     F = -4.442807633e-10
     sv_position = pd.DataFrame()
-    sv_position['sv']= ephemeris.index
+    sv_position['sv'] = ephemeris.index
     sv_position.set_index('sv', inplace=True)
     sv_position['t_k'] = transmit_time - ephemeris['t_oe']
     A = ephemeris['sqrtA'].pow(2)
@@ -141,46 +148,49 @@ def calculate_satellite_position(ephemeris, transmit_time):
     n = n_0 + ephemeris['deltaN']
     M_k = ephemeris['M_0'] + n * sv_position['t_k']
     E_k = M_k
-    err = pd.Series(data=[1]*len(sv_position.index))
+    err = pd.Series(data=[1] * len(sv_position.index))
     i = 0
     while err.abs().min() > 1e-8 and i < 10:
-        new_vals = M_k + ephemeris['e']*np.sin(E_k)
+        new_vals = M_k + ephemeris['e'] * np.sin(E_k)
         err = new_vals - E_k
         E_k = new_vals
         i += 1
-        
+
     sinE_k = np.sin(E_k)
     cosE_k = np.cos(E_k)
     delT_r = F * ephemeris['e'].pow(ephemeris['sqrtA']) * sinE_k
     delT_oc = transmit_time - ephemeris['t_oc']
-    sv_position['delT_sv'] = ephemeris['SVclockBias'] + ephemeris['SVclockDrift'] * delT_oc + ephemeris['SVclockDriftRate'] * delT_oc.pow(2)
+    sv_position['delT_sv'] = ephemeris['SVclockBias'] + ephemeris['SVclockDrift'] * delT_oc + ephemeris[
+        'SVclockDriftRate'] * delT_oc.pow(2)
 
-    v_k = np.arctan2(np.sqrt(1-ephemeris['e'].pow(2))*sinE_k,(cosE_k - ephemeris['e']))
+    v_k = np.arctan2(np.sqrt(1 - ephemeris['e'].pow(2)) * sinE_k, (cosE_k - ephemeris['e']))
 
     Phi_k = v_k + ephemeris['omega']
 
-    sin2Phi_k = np.sin(2*Phi_k)
-    cos2Phi_k = np.cos(2*Phi_k)
+    sin2Phi_k = np.sin(2 * Phi_k)
+    cos2Phi_k = np.cos(2 * Phi_k)
 
-    du_k = ephemeris['C_us']*sin2Phi_k + ephemeris['C_uc']*cos2Phi_k
-    dr_k = ephemeris['C_rs']*sin2Phi_k + ephemeris['C_rc']*cos2Phi_k
-    di_k = ephemeris['C_is']*sin2Phi_k + ephemeris['C_ic']*cos2Phi_k
+    du_k = ephemeris['C_us'] * sin2Phi_k + ephemeris['C_uc'] * cos2Phi_k
+    dr_k = ephemeris['C_rs'] * sin2Phi_k + ephemeris['C_rc'] * cos2Phi_k
+    di_k = ephemeris['C_is'] * sin2Phi_k + ephemeris['C_ic'] * cos2Phi_k
 
     u_k = Phi_k + du_k
 
-    r_k = A*(1 - ephemeris['e']*np.cos(E_k)) + dr_k
+    r_k = A * (1 - ephemeris['e'] * np.cos(E_k)) + dr_k
 
-    i_k = ephemeris['i_0'] + di_k + ephemeris['IDOT']*sv_position['t_k']
+    i_k = ephemeris['i_0'] + di_k + ephemeris['IDOT'] * sv_position['t_k']
 
-    x_k_prime = r_k*np.cos(u_k)
-    y_k_prime = r_k*np.sin(u_k)
+    x_k_prime = r_k * np.cos(u_k)
+    y_k_prime = r_k * np.sin(u_k)
 
-    Omega_k = ephemeris['Omega_0'] + (ephemeris['OmegaDot'] - OmegaDot_e)*sv_position['t_k'] - OmegaDot_e*ephemeris['t_oe']
+    Omega_k = ephemeris['Omega_0'] + (ephemeris['OmegaDot'] - OmegaDot_e) * sv_position['t_k'] - OmegaDot_e * ephemeris[
+        't_oe']
 
-    sv_position['x_k'] = x_k_prime*np.cos(Omega_k) - y_k_prime*np.cos(i_k)*np.sin(Omega_k)
-    sv_position['y_k'] = x_k_prime*np.sin(Omega_k) + y_k_prime*np.cos(i_k)*np.cos(Omega_k)
-    sv_position['z_k'] = y_k_prime*np.sin(i_k)
+    sv_position['x_k'] = x_k_prime * np.cos(Omega_k) - y_k_prime * np.cos(i_k) * np.sin(Omega_k)
+    sv_position['y_k'] = x_k_prime * np.sin(Omega_k) + y_k_prime * np.cos(i_k) * np.cos(Omega_k)
+    sv_position['z_k'] = y_k_prime * np.sin(i_k)
     return sv_position
+
 
 def save_kml(geodetic_positions):
     kml = simplekml.Kml()
@@ -189,8 +199,7 @@ def save_kml(geodetic_positions):
     kml.save("satellite_positions.kml")
 
 
-def write_outputs( ecef_positions, kml_filepath):
-
+def write_outputs(ecef_positions, kml_filepath):
     # Create KML for visualization
     doc = KML.kml(
         KML.Document(
@@ -206,20 +215,21 @@ def write_outputs( ecef_positions, kml_filepath):
     with open(kml_filepath, 'wb') as file:
         file.write(etree.tostring(doc, pretty_print=True))
 
+
 def main():
-    #Options to choose from the datasets
-    parsed_measurements = read_data('data\gnss_log_2024_04_13_19_51_17.txt')
+    # Options to choose from the datasets
+    parsed_measurements = read_data('data/gnss_log_2024_04_13_19_52_00.txt')
     measurements = preprocess_measurements(parsed_measurements)
     manager = EphemerisManager(ephemeris_data_directory)
-        
+
     csvoutput = []
     ecef_list = []
     for epoch in measurements['Epoch'].unique():
-        one_epoch = measurements.loc[(measurements['Epoch'] == epoch) & (measurements['prSeconds'] < 0.1)] 
+        one_epoch = measurements.loc[(measurements['Epoch'] == epoch) & (measurements['prSeconds'] < 0.1)]
         one_epoch = one_epoch.drop_duplicates(subset='SvName').set_index('SvName')
         if len(one_epoch.index) > 4:
             timestamp = one_epoch.iloc[0]['UnixTime'].to_pydatetime(warn=False)
-            
+
             # Calculating satellite positions (ECEF)
             sats = one_epoch.index.unique().tolist()
             ephemeris = manager.get_ephemeris(timestamp, sats)
@@ -229,14 +239,15 @@ def main():
             # Ensure sv_position's index matches one_epoch's index
             sv_position.index = sv_position.index.map(str)  # Ensuring index types match; adjust as needed
             one_epoch = one_epoch.join(sv_position[['delT_sv']], how='left')
-            pr=one_epoch['PrM_Fix'] = one_epoch['PrM'] + lightSpeed * one_epoch['delT_sv']
+            pr = one_epoch['PrM_Fix'] = one_epoch['PrM'] + lightSpeed * one_epoch['delT_sv']
             pr = pr.to_numpy()
 
             # Doppler shift calculation
             doppler_calculated = False
             try:
                 one_epoch['CarrierFrequencyHz'] = pd.to_numeric(one_epoch['CarrierFrequencyHz'])
-                one_epoch['DopplerShiftHz'] = -(one_epoch['PseudorangeRateMetersPerSecond'] / lightSpeed) * one_epoch['CarrierFrequencyHz']
+                one_epoch['DopplerShiftHz'] = -(one_epoch['PseudorangeRateMetersPerSecond'] / lightSpeed) * one_epoch[
+                    'CarrierFrequencyHz']
                 doppler_calculated = True
             except Exception:
                 pass
@@ -265,23 +276,21 @@ def main():
                     "Alt": alt
                 })
 
-            
-
     print(navpy.ecef2lla(x))
     print(b / lightSpeed)
     print(dp)
     ecef_array = np.stack(ecef_list, axis=0)
-    print(ecef_array)
+    # print(ecef_array)
     lla_array = np.stack(navpy.ecef2lla(ecef_array), axis=1)
-    print("checking")
+    # print("checking")
     print(lla_array)
     write_outputs(lla_array, 'path.kml')
     ref_lla = lla_array[0, :]
     ned_array = navpy.ecef2ned(ecef_array, ref_lla[0], ref_lla[1], ref_lla[2])
-    print(ned_array)
+    # print(ned_array)
     coordinates = [ecef_to_geodetic(row['x_k'], row['y_k'], row['z_k']) for index, row in sv_position.iterrows()]
     geodetic_positions = pd.DataFrame(coordinates, columns=['Latitude', 'Longitude', 'Altitude'])
-    print(geodetic_positions)
+    # print(geodetic_positions)
     csv_df = pd.DataFrame(csvoutput)
     save_kml(geodetic_positions)
     # Append geodetic positions to CSV output
@@ -290,6 +299,7 @@ def main():
     csv_df['Altitude'] = geodetic_positions['Altitude']
 
     csv_df.to_csv("gnss_measurements_output.csv", index=False)
+
 
 try:
     main()
