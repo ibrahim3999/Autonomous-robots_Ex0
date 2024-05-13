@@ -218,7 +218,10 @@ def write_outputs(ecef_positions, kml_filepath):
 
 def main():
     # Options to choose from the datasets
-    parsed_measurements = read_data('data/gnss_log_2024_04_13_19_52_00.txt')
+    parser = argparse.ArgumentParser(description="Process GNSS log file to compute paths and save to KML.")
+    parser.add_argument("file_path", type=str, help="Path to the GNSS log file")
+    args = parser.parse_args()
+    parsed_measurements = read_data(args.file_path)
     measurements = preprocess_measurements(parsed_measurements)
     manager = EphemerisManager(ephemeris_data_directory)
 
@@ -256,7 +259,6 @@ def main():
             x0 = np.array([0, 0, 0])
             xs = sv_position[['x_k', 'y_k', 'z_k']].to_numpy()
             x, b, dp = least_squares(xs, pr, x0, b0)
-            lat, lon, alt = ecef_to_geodetic(*x[:3])
             ecef_list.append(x[:3])
             for sv in one_epoch.index:
                 csvoutput.append({
@@ -271,9 +273,6 @@ def main():
                     "Pos.X": x[0],
                     "Pos.Y": x[1],
                     "Pos.Z": x[2],
-                    "Lat": lat,
-                    "Lon": lon,
-                    "Alt": alt
                 })
 
     print(navpy.ecef2lla(x))
