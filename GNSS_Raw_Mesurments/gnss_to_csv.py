@@ -181,7 +181,7 @@ def calculate_satellite_position(ephemeris, transmit_time):
 
 def main():
     #Options to choose from the datasets
-    parsed_measurements = read_data('C:\projects\Atumic Robots\Ex0-20240507T151005Z-001\Ex0\GNSS-Raw-Measurements-main\GNSS-Raw-Measurements-main\data\gnss_log_2024_04_13_19_51_17.txt')
+    parsed_measurements = read_data('data\gnss_log_2024_04_13_19_51_17.txt')
     measurements = preprocess_measurements(parsed_measurements)
     manager = EphemerisManager(ephemeris_data_directory)
         
