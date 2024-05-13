@@ -8,7 +8,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import navpy
-import simplekml
 from gnssutils import EphemerisManager
 parent_directory = os.getcwd()
 ephemeris_data_directory = os.path.join(parent_directory, 'data')
@@ -180,19 +179,14 @@ def calculate_satellite_position(ephemeris, transmit_time):
     sv_position['z_k'] = y_k_prime*np.sin(i_k)
     return sv_position
 
-def save_kml(geodetic_positions):
-    kml = simplekml.Kml()
-    for index, row in geodetic_positions.iterrows():
-        kml.newpoint(name=f"Satellite {index}", coords=[(row['Longitude'], row['Latitude'], row['Altitude'])])
-    kml.save("satellite_positions.kml")
-
 def main():
     #Options to choose from the datasets
-    parsed_measurements = read_data('data\gnss_log_2024_04_13_19_51_17.txt')
+    parsed_measurements = read_data('C:\projects\Atumic Robots\Ex0-20240507T151005Z-001\Ex0\GNSS-Raw-Measurements-main\GNSS-Raw-Measurements-main\data\gnss_log_2024_04_13_19_51_17.txt')
     measurements = preprocess_measurements(parsed_measurements)
     manager = EphemerisManager(ephemeris_data_directory)
         
     csvoutput = []
+    ecef_list = []
     for epoch in measurements['Epoch'].unique():
         one_epoch = measurements.loc[(measurements['Epoch'] == epoch) & (measurements['prSeconds'] < 0.1)] 
         one_epoch = one_epoch.drop_duplicates(subset='SvName').set_index('SvName')
@@ -231,6 +225,11 @@ def main():
                     "CN0": one_epoch.at[sv, 'Cn0DbHz'],
                     "Doppler": one_epoch.at[sv, 'DopplerShiftHz'] if doppler_calculated else 'NaN'
                 })
+            b0 = 0
+            x0 = np.array([0, 0, 0])
+            xs = sv_position[['x_k', 'y_k', 'z_k']].to_numpy()
+            x, b, dp = least_squares(xs, pr, x0, b0)
+            ecef_list.append(x)
             
 
 
@@ -244,15 +243,8 @@ def main():
     coordinates = [ecef_to_geodetic(row['x_k'], row['y_k'], row['z_k']) for index, row in sv_position.iterrows()]
     geodetic_positions = pd.DataFrame(coordinates, columns=['Latitude', 'Longitude', 'Altitude'])
 
-
     print(geodetic_positions)
     csv_df = pd.DataFrame(csvoutput)
-    save_kml(geodetic_positions)
-    # Append geodetic positions to CSV output
-    csv_df['Latitude'] = geodetic_positions['Latitude']
-    csv_df['Longitude'] = geodetic_positions['Longitude']
-    csv_df['Altitude'] = geodetic_positions['Altitude']
-
     csv_df.to_csv("gnss_measurements_output.csv", index=False)
 
 try:
