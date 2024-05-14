@@ -27,7 +27,7 @@ The main steps involved in the processing are:
 
 2.
    ```bash 
-   python gnss_to_csv.py.py data/file_gnss_name.txt
+   python gnss_to_csv.py data/file_gnss_name.txt
 
 
 ## Requirements
