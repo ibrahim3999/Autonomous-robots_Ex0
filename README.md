@@ -28,7 +28,7 @@ The main steps involved in the processing are:
 2.    install packages
   
    ```bash
-   $ pip install -r requirements.txt
+    pip install -r requirements.txt
 
 3. run by choosing file from the data
 
