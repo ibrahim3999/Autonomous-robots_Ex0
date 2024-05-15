@@ -26,14 +26,14 @@ The main steps involved in the processing are:
    git https://github.com/ibrahim3999/Autonomous-robots_Ex0.git
 
 2.    install packages
-  
    ```bash
-    $ pip install -r requirements.txt
+   $ pip install -r requirements.txt
 
 
 3. run by choosing file from the data
 
-     python gnss_to_csv.py data/file_gnss_name.txt
+   ```bash
+   python gnss_to_csv.py data/file_gnss_name.txt
 
 
 ## Requirements
