@@ -31,8 +31,9 @@ The main steps involved in the processing are:
     $ pip install -r requirements.txt
 
 3.
+
    ```bash 
-   python gnss_to_csv.py data/file_gnss_name.txt
+    python gnss_to_csv.py data/file_gnss_name.txt
 
 
 ## Requirements
