@@ -26,8 +26,9 @@ The main steps involved in the processing are:
    git https://github.com/ibrahim3999/Autonomous-robots_Ex0.git
 
 2.    install packages
-      ```bash
-   $ pip install -r requirements.txt
+  
+   ```bash
+    $ pip install -r requirements.txt
 
 3.
    ```bash 
