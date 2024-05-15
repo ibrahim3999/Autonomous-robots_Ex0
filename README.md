@@ -30,10 +30,10 @@ The main steps involved in the processing are:
    ```bash
     $ pip install -r requirements.txt
 
-3.
+3. run by choosing file from the data
 
    ```bash 
-    python gnss_to_csv.py data/file_gnss_name.txt
+     python gnss_to_csv.py data/file_gnss_name.txt
 
 
 ## Requirements
